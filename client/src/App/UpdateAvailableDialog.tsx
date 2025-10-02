@@ -74,7 +74,7 @@ export const UpdateAvailableDialog: React.FC = () =>
 				)}
 			</DialogContent>
 			<DialogActions style={{justifyContent: "center", padding: "1rem"}}>
-				<Button color={"primary"} onClick={ServiceWorkerUpdate.update} startIcon={<FiDownloadCloud/>} variant={"contained"}>
+				<Button autoFocus={false} color={"primary"} onClick={ServiceWorkerUpdate.update} startIcon={<FiDownloadCloud/>} variant={"contained"}>
 					Update Now
 				</Button>
 			</DialogActions>

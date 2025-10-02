@@ -161,22 +161,22 @@ export const GameList: React.FC<Props> = ({
 				<>
 					<div className={styles.specialHighlights}>
 						<ButtonGroup variant={"outlined"} size={"small"} className={classNames(styles.buttonGroup, styles.first)}>
-							<Button component={p => <Link {...p} to={getSearchLink("game-recap", urlDate)}/>}>
+							<Button autoFocus={false} component={p => <Link {...p} to={getSearchLink("game-recap", urlDate)}/>}>
 								Recaps
 							</Button>
-							<Button component={p => <Link {...p} to={getSearchLink("condensed-game", urlDate)}/>}>
+							<Button autoFocus={false} component={p => <Link {...p} to={getSearchLink("condensed-game", urlDate)}/>}>
 								Condensed
 							</Button>
-							<Button component={p => <Link {...p} to={getSearchLink("player-tracking", urlDate)}/>}>
+							<Button autoFocus={false} component={p => <Link {...p} to={getSearchLink("player-tracking", urlDate)}/>}>
 								StatCast
 							</Button>
-							<Button component={p => <Link {...p} to={getSearchLink("home-run", urlDate)}/>}>
+							<Button autoFocus={false} component={p => <Link {...p} to={getSearchLink("home-run", urlDate)}/>}>
 								Home Runs
 							</Button>
-							<Button component={p => <Link {...p} to={getSearchLink("highlight-reel-offense", urlDate)}/>}>
+							<Button autoFocus={false} component={p => <Link {...p} to={getSearchLink("highlight-reel-offense", urlDate)}/>}>
 								Top Offense
 							</Button>
-							<Button component={p => <Link {...p} to={getSearchLink("highlight-reel-defense", urlDate)}/>}>
+							<Button autoFocus={false} component={p => <Link {...p} to={getSearchLink("highlight-reel-defense", urlDate)}/>}>
 								Top Defense
 							</Button>
 						</ButtonGroup>

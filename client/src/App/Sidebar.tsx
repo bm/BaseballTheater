@@ -241,6 +241,7 @@ class Sidebar extends React.Component<Props, State> {
 				)}
 				{authContext.authorized && authContext.loaded && (
 					<Button
+						autoFocus={false}
 						className={styles.patreonButton}
 						onClick={this.logOut}
 					>

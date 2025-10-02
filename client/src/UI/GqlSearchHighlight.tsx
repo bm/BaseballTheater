@@ -86,8 +86,8 @@ export class GqlSearchHighlight extends React.Component<Props, State>
 			<CardActions>
 				{videos && !loading
 					? videos.map(a => (
-						<a href={a.url} target={"_blank"} key={a.url} onClick={e => ChromecastUtils.TryCast(e, a.url)}>
-							<Button size="small" color="primary" startIcon={<FaPlay/>}>
+						<a href={a.url} target={"_blank"} key={a.url} onClick={e => ChromecastUtils.TryCast(e, a.url)} rel="noreferrer">
+							<Button autoFocus={false} size="small" color="primary" startIcon={<FaPlay/>}>
 								{this.getKLabel(a.url)}
 							</Button>
 						</a>
@@ -114,7 +114,7 @@ export class GqlSearchHighlight extends React.Component<Props, State>
 			<Card className={classNames(this.props.className, styles.highlight)}>
 				<div className={styles.cardContent}>
 					{this.defaultVideo && !loading ?
-						<a href={this.defaultVideo.url} target={"_blank"}>
+						<a href={this.defaultVideo.url} target={"_blank"} rel="noreferrer">
 							<CardMedia
 								className={styles.cardMedia}
 								image={this.props.imageSrc}
@@ -128,7 +128,7 @@ export class GqlSearchHighlight extends React.Component<Props, State>
 						<CardActionArea className={styles.actionArea}>
 							{!loading && this.defaultVideo && (
 								<CardContent>
-									<a href={this.defaultVideo.url} target={"_blank"}>
+									<a href={this.defaultVideo.url} target={"_blank"} rel="noreferrer">
 										<Typography gutterBottom variant="h6" component="h2" className={styles.title}>
 											{title}
 										</Typography>

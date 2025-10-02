@@ -58,7 +58,7 @@ export const ErrorBoundary: React.FC<IErrorBoundaryProps> = (props) => {
 			<div>
 				<div>
 					<br />
-					<Button variant={"contained"} color={"primary"} style={{ color: "white" }} onClick={openEmail}>
+					<Button autoFocus={false} variant={"contained"} color={"primary"} style={{ color: "white" }} onClick={openEmail}>
 						Please click here to send an error report
 					</Button>
 				</div>

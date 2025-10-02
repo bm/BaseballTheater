@@ -123,12 +123,14 @@ export const Plays: React.FC<Props> = (props) => {
 			<div className={styles.playTypes}>
 				<ButtonGroup variant={"contained"}>
 					<Button
+						autoFocus={false}
 						color={mode === "scoring" ? "primary" : "default"}
 						onClick={() => onPlayModeClick("scoring")}
 					>
 						Scoring Plays
 					</Button>
 					<Button
+						autoFocus={false}
 						color={mode === "all" ? "primary" : "default"}
 						onClick={() => onPlayModeClick("all")}
 					>
@@ -158,6 +160,7 @@ export const Plays: React.FC<Props> = (props) => {
 					<React.Fragment>
 						<div>
 							<Button
+								autoFocus={false}
 								ref={buttonRef}
 								aria-controls="simple-menu"
 								aria-haspopup="true"

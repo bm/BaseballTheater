@@ -110,7 +110,7 @@ export const Highlight: React.FC<Props> = (props) => {
 			{mp4s && !loading
 				? mp4s.map(a => (
 					<a href={a.url} target={"_blank"} key={a.url} onClick={e => ChromecastUtils.TryCast(e, a.url)} rel="noreferrer">
-						<Button size="small" color="primary" startIcon={<FaExternalLinkAlt />}>
+						<Button autoFocus={false} size="small" color="primary" startIcon={<FaExternalLinkAlt />}>
 							{getKLabel(a)}
 						</Button>
 					</a>
