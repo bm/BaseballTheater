@@ -17,6 +17,7 @@ const finalize = (buildName, buildDir, outputDir) => {
     fs.copySync(resolve("client/build"), path.resolve(outputDir, "client"), {dereference: true});
     fs.copyFileSync(resolve("server/package.json"), path.resolve(buildDir, "package.json"));
     fs.copyFileSync(resolve("server/.env"), path.resolve(outputDir, "./.env"));
+    fs.copySync(resolve(".ebextensions"), path.resolve(buildDir, ".ebextensions"));
 
     const zipPath = path.resolve(buildDir, "../" + buildName + ".zip");
     const toAdd = path.resolve(buildDir, "./*.*");
