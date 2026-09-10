@@ -7,7 +7,11 @@ import { Auth } from './auth';
 import { changelist } from './changelist';
 import { Search } from './search';
 
-const cache = apicache.middleware;
+const cache = apicache.options({
+	statusCodes: {
+		include: [200]
+	}
+}).middleware;
 
 export const RegisterLocalEndpoints = (app: Express, clientFolder: string) =>
 {
@@ -20,11 +24,33 @@ export const RegisterLocalEndpoints = (app: Express, clientFolder: string) =>
 		}
 
 		const decodedUrl = decodeURI(url);
-		fetch(decodedUrl)
-			.then(response => response.json())
+		fetch(decodedUrl, {
+			headers: {
+				"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+				"Accept": "application/json"
+			}
+		})
+			.then(response =>
+			{
+				if (!response.ok)
+				{
+					throw new Error(`Upstream ${response.status} for ${decodedUrl}`);
+				}
+
+				return response.json();
+			})
 			.then(json =>
 			{
 				res.send(json);
+			})
+			.catch(error =>
+			{
+				console.error(error);
+
+				if (!res.headersSent)
+				{
+					res.status(502).json({error: "Upstream request failed"});
+				}
 			});
 	});
 
@@ -75,11 +101,8 @@ export const RegisterLocalEndpoints = (app: Express, clientFolder: string) =>
 			throw e;
 		}
 
-		let host = Config.host.replace("local:8000", "local:3000");
-		if (host.match(/:[0-9]/))
-		{
-			host = host.replace("http", "https");
-		}
+		// Beta and prod are already https; the dev client on 3000 is plain http.
+		const host = Config.host.replace("local:8000", "local:3000");
 
 		const state = decodeURIComponent(req.query.state) || "/";
 
@@ -91,6 +114,13 @@ export const RegisterLocalEndpoints = (app: Express, clientFolder: string) =>
 		const result = await Auth.getRefreshAuthStatus(req, res);
 
 		res.send(result ?? {});
+	});
+
+	app.post("/auth/logout", (req, res) =>
+	{
+		Auth.logout(res);
+
+		res.send({});
 	});
 
 	app.post("/auth/save-settings", async (req, res) =>

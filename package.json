@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "",
   "main": "server/server.ts",
+  "packageManager": "pnpm@9.4.0",
   "scripts": {
     "preinstall": "npx only-allow pnpm",
     "postinstall": "pnpm install --prefix client",
@@ -79,7 +80,6 @@
     "gar": "1.0.4",
     "node-7z": "2.1.1",
     "nodemon": "2.0.2",
-    "patreon": "0.4.1",
     "serve-static": "1.14.1",
     "swagger-jsdoc": "3.4.0",
     "swagger-ui-react": "3.23.11",

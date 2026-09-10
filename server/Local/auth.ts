@@ -1,5 +1,4 @@
 import ClientOAuth2 from 'client-oauth2';
-import fetch from 'cross-fetch';
 import * as crypto from 'crypto';
 import { Request, Response } from 'express';
 import * as fs from 'fs';
@@ -7,6 +6,7 @@ import * as path from 'path';
 
 import { Config } from '../config/config';
 import { Database } from '../DB/Database';
+import { getPatreonApi, IPatreonApi, PatreonApiVersion, PatreonUnauthorizedError } from './patreonApi';
 
 interface TokenWithExpires extends ClientOAuth2.Token
 {
@@ -17,7 +17,9 @@ interface IUserData
 {
 	userId: string;
 	accessToken: string;
-	accessTokenExpiry: Date;
+	// Epoch milliseconds. A Date here would come back from the cookie as a string and silently
+	// break every comparison made against it.
+	accessTokenExpiry: number;
 }
 
 interface IAuthStatus
@@ -27,16 +29,51 @@ interface IAuthStatus
 	levels: string[]
 }
 
+/**
+ * Expiries reach us as epoch numbers, as ISO strings from cookies written before this was
+ * normalized, or as an empty object from DynamoDB rows that stored a Date. Anything unreadable
+ * becomes null, which callers treat as "unknown" rather than "expired".
+ */
+const toTimestamp = (value: any): number =>
+{
+	if (typeof value === "number")
+	{
+		return isFinite(value) ? value : null;
+	}
+
+	if (value instanceof Date || typeof value === "string")
+	{
+		const parsed = new Date(value).getTime();
+
+		return isNaN(parsed) ? null : parsed;
+	}
+
+	return null;
+};
+
 class _Auth
 {
 	public static Instance = new _Auth();
 
 	private static AuthCookieName = "auth";
+	private static CookieVersion = "v2";
+	private static GcmIvLength = 12;
+	private static GcmTagLength = 16;
 	private static EncryptionKey: Buffer;
-	private static EncryptionIv: Buffer;
+
+	// Only used when Patreon omits expires_in; its access tokens normally last about a month.
+	private static DefaultAccessTokenMs = 1000 * 60 * 60;
+	// Refresh slightly early so a request can't race the expiry.
+	private static AccessTokenSkewMs = 1000 * 60 * 5;
+	// Both windows are rolling, renewed on every status check, so an active session never hits
+	// a hard deadline.
+	private static RefreshWindowMs = 1000 * 60 * 60 * 24 * 90;
+	private static SessionCookieMs = 1000 * 60 * 60 * 24 * 30;
 
 	private readonly id: string;
 	private readonly secret: string;
+	private readonly api: IPatreonApi;
+	private readonly refreshes = new Map<string, Promise<IUserData>>();
 	private client: ClientOAuth2;
 
 	private constructor()
@@ -44,12 +81,37 @@ class _Auth
 		const keysFile = fs.readFileSync(path.resolve(process.cwd(), "./server/config/keys.json"), "utf8");
 		const keys = JSON.parse(keysFile)[0];
 
-		// Use the client id and secret you received when setting up your OAuth account
-		this.id = keys.patreon.id;
-		this.secret = keys.patreon.secret;
+		const version = _Auth.getApiVersion(keys.patreon);
 
-		_Auth.EncryptionKey = new Buffer(keys.crypto.key32);
-		_Auth.EncryptionIv = new Buffer(keys.crypto.iv16);
+		// Each API version needs its own OAuth client, since a v1 client cannot request v2 scopes.
+		const credentials = version === 2 ? keys.patreon.v2 : keys.patreon;
+
+		this.api = getPatreonApi(version);
+		this.id = credentials.id;
+		this.secret = credentials.secret;
+
+		console.log(`AUTH: using Patreon API v${version}`);
+
+		_Auth.EncryptionKey = Buffer.from(keys.crypto.key32);
+	}
+
+	private static getApiVersion(patreonKeys: any): PatreonApiVersion
+	{
+		const configured = process.env.PATREON_API_VERSION ?? patreonKeys?.apiVersion;
+
+		if (Number(configured) !== 2)
+		{
+			return 1;
+		}
+
+		if (!patreonKeys?.v2?.id || !patreonKeys?.v2?.secret)
+		{
+			console.error("AUTH: Patreon API v2 is enabled but keys.patreon.v2 has no id/secret. Falling back to v1.");
+
+			return 1;
+		}
+
+		return 2;
 	}
 
 	private static getRedirectUri()
@@ -65,46 +127,58 @@ class _Auth
 			accessTokenUri: 'https://www.patreon.com/api/oauth2/token',
 			authorizationUri: 'https://www.patreon.com/oauth2/authorize',
 			redirectUri: _Auth.getRedirectUri(),
-			scopes: ['notifications', 'gist']
+			scopes: this.api.scopes
 		})
 	}
 
 	public authorize(req: Request, res: Response)
 	{
-		const uri = this.client.code.getUri();
+		const state = typeof req.query.state === "string" ? req.query.state : "/";
+
+		const uri = this.client.code.getUri({state});
 
 		res.redirect(uri);
 	}
 
 	public async storeUserToken(req: Request, res: Response)
 	{
-		let user = await this.client.code.getToken(req.originalUrl, {
+		const user = await this.client.code.getToken(req.originalUrl, {
 			redirectUri: _Auth.getRedirectUri()
 		}) as TokenWithExpires;
 
-		user = await user.refresh() as TokenWithExpires;
+		const profile = await this.api.fetchProfile(user.accessToken);
+		const userId = profile.userId;
 
-		const profileInfo = await fetch("https://www.patreon.com/api/oauth2/api/current_user", {
-			headers: {
-				authorization: `Bearer ${user.accessToken}`
-			}
-		});
+		if (!userId)
+		{
+			throw new Error(`Patreon API v${this.api.version} did not return a user for this token`);
+		}
 
-		const profileData = await profileInfo.json();
-		const userId = profileData.data.id;
-		const tokenExpiry = new Date(Date.now() + (1000 * 60));
+		if (!user.refreshToken)
+		{
+			console.error("AUTH: Patreon returned no refresh token; this session will not renew");
+		}
 
 		_Auth.setAuthCookie({
 			accessToken: user.accessToken,
-			accessTokenExpiry: tokenExpiry,
+			accessTokenExpiry: _Auth.getAccessTokenExpiry(user),
 			userId
 		}, res);
 
 		await Database.updateUser(userId, {
 			accessToken: user.accessToken,
 			refresh_token: user.refreshToken,
-			refresh_expiry: user.expires
+			refresh_expiry: Date.now() + _Auth.RefreshWindowMs
 		});
+	}
+
+	/**
+	 * client-oauth2 derives `expires` from expires_in and leaves an Invalid Date when the
+	 * provider omits it.
+	 */
+	private static getAccessTokenExpiry(token: TokenWithExpires): number
+	{
+		return toTimestamp(token.expires) ?? (Date.now() + _Auth.DefaultAccessTokenMs);
 	}
 
 	public async getRefreshAuthStatus(req: Request, res: Response): Promise<IAuthStatus>
@@ -122,92 +196,176 @@ class _Auth
 		};
 
 		const storedUserData = _Auth.getAuthCookie(req);
-		if (storedUserData)
+		if (!storedUserData)
 		{
-			authStatus.accessToken = storedUserData.accessToken;
-			authStatus.userId = storedUserData.userId;
-
-			const dbUser = await Database.getUser(storedUserData.userId);
-
-			const now = new Date();
-			const refreshExpired = now > dbUser.refresh_expiry;
-			if (refreshExpired)
+			// Drop leftover CBC cookies (and anything else we can't read) so they don't linger.
+			if (req.cookies[_Auth.AuthCookieName])
 			{
-				authStatus.userId = null;
-				authStatus.accessToken = null;
-
-				// Return null for everything
-				return authStatus;
+				_Auth.clearAuthCookie(res);
 			}
 
-			const accessExpired = now > storedUserData.accessTokenExpiry;
-			if (accessExpired || !storedUserData.accessToken)
+			return authStatus;
+		}
+
+		const dbUser = await Database.getUser(storedUserData.userId);
+		if (!dbUser)
+		{
+			console.error(`AUTH: no stored record for user ${storedUserData.userId}`);
+			_Auth.clearAuthCookie(res);
+
+			return authStatus;
+		}
+
+		const now = Date.now();
+		const refreshExpiry = toTimestamp(dbUser.refresh_expiry);
+
+		// A null expiry means the record predates numeric expiries, so let the refresh itself
+		// decide whether the session is still good.
+		if (refreshExpiry !== null && now > refreshExpiry)
+		{
+			_Auth.clearAuthCookie(res);
+
+			return authStatus;
+		}
+
+		let userData = storedUserData;
+		let refreshed = false;
+
+		const accessExpiry = toTimestamp(storedUserData.accessTokenExpiry);
+		const accessExpired = accessExpiry === null || now > (accessExpiry - _Auth.AccessTokenSkewMs);
+
+		if (accessExpired || !storedUserData.accessToken)
+		{
+			try
 			{
+				userData = await this.refreshUser(storedUserData.userId, storedUserData.accessToken, dbUser.refresh_token);
+				refreshed = true;
+			}
+			catch (e)
+			{
+				console.error("AUTH: token refresh failed", e);
+
+				// The stored refresh token is no longer usable, so drop the cookie instead of
+				// leaving the client in a half-signed-in state that retries it forever.
+				_Auth.clearAuthCookie(res);
+
+				return authStatus;
+			}
+		}
+
+		try
+		{
+			authStatus.levels = await this.getSubscriberLevel(userData.userId, userData.accessToken);
+		}
+		catch (e)
+		{
+			if (!(e instanceof PatreonUnauthorizedError))
+			{
+				// Anything else is Patreon being unavailable, which shouldn't sign anyone out.
+				console.error("AUTH: could not read Patreon profile", e);
+			}
+			else if (refreshed)
+			{
+				console.error("AUTH: Patreon rejected a token it had just issued");
+				_Auth.clearAuthCookie(res);
+
+				return authStatus;
+			}
+			else
+			{
+				// Refreshing invalidates the previous access token, so a cookie written before a
+				// refresh that happened elsewhere still looks unexpired while being dead. Its
+				// expiry will never prompt a refresh on its own, so force one here.
 				try
 				{
-					const newCreatedToken = this.client.createToken(storedUserData.accessToken, dbUser.refresh_token);
-					const newRefreshedToken = await newCreatedToken.refresh() as TokenWithExpires;
-
-					const newUserData: IUserData = {
-						userId: storedUserData.userId,
-						accessToken: newRefreshedToken.accessToken,
-						accessTokenExpiry: new Date(Date.now() + (1000 * 60))
-					};
-
-					authStatus.userId = newUserData.userId;
-					authStatus.accessToken = newUserData.accessToken;
-
-					_Auth.setAuthCookie(newUserData, res);
-
-					// Refresh the current users access token.
-					await Database.updateUser(newUserData.userId, {
-						accessToken: newRefreshedToken.accessToken,
-						refresh_token: newRefreshedToken.refreshToken,
-						refresh_expiry: newRefreshedToken.expires
-					});
+					userData = await this.refreshUser(userData.userId, userData.accessToken, dbUser.refresh_token);
+					authStatus.levels = await this.getSubscriberLevel(userData.userId, userData.accessToken);
 				}
-				catch (e)
+				catch (retryError)
 				{
-					console.error(e);
+					console.error("AUTH: could not replace a rejected access token", retryError);
+					_Auth.clearAuthCookie(res);
 
 					return authStatus;
 				}
 			}
 		}
 
-		authStatus.levels = await this.getSubscriberLevel(authStatus.userId, authStatus.accessToken);
+		_Auth.setAuthCookie(userData, res);
+
+		authStatus.userId = userData.userId;
+		authStatus.accessToken = userData.accessToken;
 
 		return authStatus;
 	}
 
+	/**
+	 * Patreon invalidates a refresh token the moment it is redeemed, so concurrent requests for
+	 * the same user have to share one refresh rather than each spending the stored token.
+	 */
+	private refreshUser(userId: string, accessToken: string, refreshToken: string): Promise<IUserData>
+	{
+		const inFlight = this.refreshes.get(userId);
+		if (inFlight)
+		{
+			return inFlight;
+		}
+
+		if (!refreshToken)
+		{
+			return Promise.reject(new Error(`No refresh token stored for user ${userId}`));
+		}
+
+		const done = (result: IUserData) =>
+		{
+			this.refreshes.delete(userId);
+
+			return result;
+		};
+
+		const failed = (e: any) =>
+		{
+			this.refreshes.delete(userId);
+
+			throw e;
+		};
+
+		const refresh = this.doRefresh(userId, accessToken, refreshToken).then(done, failed);
+
+		this.refreshes.set(userId, refresh);
+
+		return refresh;
+	}
+
+	private async doRefresh(userId: string, accessToken: string, refreshToken: string): Promise<IUserData>
+	{
+		const created = this.client.createToken(accessToken, {refresh_token: refreshToken});
+		const refreshed = await created.refresh() as TokenWithExpires;
+
+		await Database.updateUser(userId, {
+			accessToken: refreshed.accessToken,
+			// Patreon rotates the refresh token on each use, but keep the old one if it didn't.
+			refresh_token: refreshed.refreshToken ?? refreshToken,
+			refresh_expiry: Date.now() + _Auth.RefreshWindowMs
+		});
+
+		return {
+			userId,
+			accessToken: refreshed.accessToken,
+			accessTokenExpiry: _Auth.getAccessTokenExpiry(refreshed)
+		};
+	}
+
 	private async getSubscriberLevel(userId: string, accessToken: string): Promise<string[]>
 	{
-		let levels: string[] = [];
-
 		if (!userId || !accessToken)
 		{
-			return levels;
+			return [];
 		}
 
-		const profileInfo = await fetch("https://www.patreon.com/api/oauth2/api/current_user", {
-			headers: {
-				authorization: `Bearer ${accessToken}`
-			}
-		}).then(r => r.json());
+		const profile = await this.api.fetchProfile(accessToken);
 
-		if (profileInfo && !profileInfo.errors && profileInfo.included && profileInfo.data.relationships && profileInfo.data.relationships.pledges)
-		{
-			const pledgeIds = profileInfo.data.relationships.pledges.data.map((p: any) => p.id);
-			if (pledgeIds && pledgeIds.length)
-			{
-				const pledges = profileInfo.included.filter((i: any) => i.type === "pledge" && pledgeIds.includes(i.id));
-				const rewardIds = pledges.map((p: any) => p.relationships.reward.data.id);
-				const rewards = rewardIds.map((r: any) => profileInfo.included.find((i: any) => i.type === "reward" && i.id === r));
-				levels = rewards.map((r: any) => r.attributes.title);
-			}
-		}
-
-		return levels;
+		return profile.levels;
 	}
 
 	public async saveSettings(req: Request)
@@ -232,22 +390,59 @@ class _Auth
 		return null;
 	}
 
+	public logout(res: Response)
+	{
+		_Auth.clearAuthCookie(res);
+	}
+
+	private static cookieOptions()
+	{
+		return {
+			expires: new Date(Date.now() + _Auth.SessionCookieMs),
+			httpOnly: true,
+			// Local login is plain http on jlauer.local.
+			secure: Config.Environment !== "local",
+			sameSite: "lax" as const,
+			path: "/"
+		};
+	}
+
 	private static setAuthCookie(userData: IUserData, res: Response)
 	{
-		const encrypted = _Auth.encodeUserInfo(userData);
+		res.cookie(_Auth.AuthCookieName, _Auth.encodeUserInfo(userData), _Auth.cookieOptions());
+	}
 
-		res.cookie(_Auth.AuthCookieName, encrypted, {
-			expires: new Date(Date.now() + (1000 * 60 * 60 * 24 * 30)),
-			httpOnly: false
+	private static clearAuthCookie(res: Response)
+	{
+		const options = _Auth.cookieOptions();
+
+		res.clearCookie(_Auth.AuthCookieName, {
+			httpOnly: options.httpOnly,
+			secure: options.secure,
+			sameSite: options.sameSite,
+			path: options.path
 		});
 	}
 
-	private static getAuthCookie(req: Request)
+	private static getAuthCookie(req: Request): IUserData
 	{
 		const authCookie = req.cookies[_Auth.AuthCookieName];
-		if (authCookie)
+		if (!authCookie)
 		{
-			return _Auth.decodeUserInfo(authCookie);
+			return null;
+		}
+
+		try
+		{
+			const userData = _Auth.decodeUserInfo(authCookie);
+
+			return userData?.userId ? userData : null;
+		}
+		catch (e)
+		{
+			console.error("AUTH: could not read auth cookie", e);
+
+			return null;
 		}
 	}
 
@@ -266,19 +461,36 @@ class _Auth
 	private static encrypt(o: string | object)
 	{
 		const text = typeof o === "string" ? o : JSON.stringify(o);
-		let cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(_Auth.EncryptionKey), _Auth.EncryptionIv);
-		let encrypted = cipher.update(text);
-		encrypted = Buffer.concat([encrypted, cipher.final()]);
-		return encrypted.toString('hex');
+		const iv = crypto.randomBytes(_Auth.GcmIvLength);
+		const cipher = crypto.createCipheriv("aes-256-gcm", _Auth.EncryptionKey, iv);
+		const encrypted = Buffer.concat([cipher.update(text, "utf8"), cipher.final()]);
+		const payload = Buffer.concat([iv, encrypted, cipher.getAuthTag()]);
+
+		return `${_Auth.CookieVersion}.${payload.toString("base64")}`;
 	}
 
 	private static decrypt(text: string)
 	{
-		let encryptedText = Buffer.from(text, 'hex');
-		let decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(_Auth.EncryptionKey), _Auth.EncryptionIv);
-		let decrypted = decipher.update(encryptedText);
-		decrypted = Buffer.concat([decrypted, decipher.final()]);
-		return decrypted.toString();
+		const prefix = `${_Auth.CookieVersion}.`;
+		if (!text.startsWith(prefix))
+		{
+			throw new Error("Unsupported auth cookie version");
+		}
+
+		const payload = Buffer.from(text.slice(prefix.length), "base64");
+		const minLength = _Auth.GcmIvLength + _Auth.GcmTagLength + 1;
+		if (payload.length < minLength)
+		{
+			throw new Error("Auth cookie is truncated");
+		}
+
+		const iv = payload.slice(0, _Auth.GcmIvLength);
+		const tag = payload.slice(payload.length - _Auth.GcmTagLength);
+		const ciphertext = payload.slice(_Auth.GcmIvLength, payload.length - _Auth.GcmTagLength);
+		const decipher = crypto.createDecipheriv("aes-256-gcm", _Auth.EncryptionKey, iv);
+		decipher.setAuthTag(tag);
+
+		return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
 	}
 }
 

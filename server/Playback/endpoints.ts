@@ -1,11 +1,28 @@
 import {CompilationPlaylists, ITeams, MlbDataServer, NonPlayTags, RecapTags, SinglePlayTags} from "../../baseball-theater-engine";
-import {Express} from "express";
+import {Express, Response} from "express";
 import {PlaybackUtils} from "./PlaybackUtils";
 import moment from "moment";
 import {Teams} from "../../baseball-theater-engine/dist/contract";
 import apicache from "apicache";
 
-const cache = apicache.middleware;
+const cache = apicache.options({
+	statusCodes: {
+		include: [200]
+	}
+}).middleware;
+
+const sendOrFail = (res: Response, work: Promise<unknown>) =>
+{
+	work.then(data => res.send(data)).catch(error =>
+	{
+		console.error(error);
+
+		if (!res.headersSent)
+		{
+			res.status(502).json({error: "Upstream request failed"});
+		}
+	});
+};
 
 export const RegisterPlaybackEndpoints = (app: Express) =>
 {
@@ -42,10 +59,7 @@ export const RegisterPlaybackEndpoints = (app: Express) =>
 		const teamCodeNumber = Teams.TeamIdList[team as keyof typeof Teams.TeamIdList];
 
 		const MLB = new MlbDataServer();
-		MLB.videoTagSearchNode(`teamid-${teamCodeNumber}`, page).then(data =>
-		{
-			res.send(data);
-		});
+		sendOrFail(res, MLB.videoTagSearchNode(`teamid-${teamCodeNumber}`, page));
 	});
 
 	/**
@@ -83,16 +97,8 @@ export const RegisterPlaybackEndpoints = (app: Express) =>
 		const limit = PlaybackUtils.timeLimitFromDayCount(daysParam);
 
 		const MLB = new MlbDataServer();
-		PlaybackUtils.getPagesUntilTimeLimit(page => MLB.videoPlaylistSearchNode(type, page), limit)
-			.then(data =>
-			{
-				const withDayResults = data.filter(r =>
-				{
-					return moment(r.date).isAfter(limit);
-				});
-
-				res.send(withDayResults);
-			});
+		sendOrFail(res, PlaybackUtils.getPagesUntilTimeLimit(page => MLB.videoPlaylistSearchNode(type, page), limit)
+			.then(data => data.filter(r => moment(r.date).isAfter(limit))));
 	});
 
 	/**
@@ -130,16 +136,8 @@ export const RegisterPlaybackEndpoints = (app: Express) =>
 		const limit = PlaybackUtils.timeLimitFromDayCount(daysParam);
 
 		const MLB = new MlbDataServer();
-		PlaybackUtils.getPagesUntilTimeLimit(page => MLB.videoTagSearchNode(type, page), limit)
-			.then(data =>
-			{
-				const withDayResults = data.filter(r =>
-				{
-					return moment(r.date).isAfter(limit);
-				});
-
-				res.send(withDayResults);
-			});
+		sendOrFail(res, PlaybackUtils.getPagesUntilTimeLimit(page => MLB.videoTagSearchNode(type, page), limit)
+			.then(data => data.filter(r => moment(r.date).isAfter(limit))));
 	});
 
 	/**
@@ -177,16 +175,8 @@ export const RegisterPlaybackEndpoints = (app: Express) =>
 		const limit = PlaybackUtils.timeLimitFromDayCount(daysParam);
 
 		const MLB = new MlbDataServer();
-		PlaybackUtils.getPagesUntilTimeLimit(page => MLB.videoTagSearchNode(type, page), limit)
-			.then(data =>
-			{
-				const withDayResults = data.filter(r =>
-				{
-					return moment(r.date).isAfter(limit);
-				});
-
-				res.send(withDayResults);
-			});
+		sendOrFail(res, PlaybackUtils.getPagesUntilTimeLimit(page => MLB.videoTagSearchNode(type, page), limit)
+			.then(data => data.filter(r => moment(r.date).isAfter(limit))));
 	});
 
 	/**
@@ -224,15 +214,7 @@ export const RegisterPlaybackEndpoints = (app: Express) =>
 		const limit = PlaybackUtils.timeLimitFromDayCount(daysParam);
 
 		const MLB = new MlbDataServer();
-		PlaybackUtils.getPagesUntilTimeLimit(page => MLB.videoTagSearchNode(type, page), limit)
-			.then(data =>
-			{
-				const withDayResults = data.filter(r =>
-				{
-					return moment(r.date).isAfter(limit);
-				});
-
-				res.send(withDayResults);
-			});
+		sendOrFail(res, PlaybackUtils.getPagesUntilTimeLimit(page => MLB.videoTagSearchNode(type, page), limit)
+			.then(data => data.filter(r => moment(r.date).isAfter(limit))));
 	});
 };

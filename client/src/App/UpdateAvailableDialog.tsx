@@ -12,10 +12,35 @@ import { ServiceWorkerUpdate } from '../Global/ServiceWorkerUpdate';
 
 type Changelists = { [datetime: string]: string[] };
 
+const LastSeenChangelistKey = "lastSeenChangelist";
+
+const latestChangelistDate = (data: Changelists): string | null =>
+{
+	return Object.keys(data).reduce((latest: string | null, date) =>
+	{
+		if (!latest || date > latest)
+		{
+			return date;
+		}
+
+		return latest;
+	}, null);
+};
+
+const markChangelistSeen = (data: Changelists) =>
+{
+	const latest = latestChangelistDate(data);
+	if (latest)
+	{
+		localStorage.setItem(LastSeenChangelistKey, latest);
+	}
+};
+
 export const UpdateAvailableDialog: React.FC = () =>
 {
 	const [waitingForUpdate, setWaitingForUpdate] = useState(false);
 	const [changelistData, setChangelistData] = useState<Changelists | null>(null);
+	const [unseenChangelist, setUnseenChangelist] = useState(false);
 
 	const checkForUpdates = () =>
 	{
@@ -32,15 +57,46 @@ export const UpdateAvailableDialog: React.FC = () =>
 
 		fetch("/api/changelist")
 			.then(data => data.json())
-			.then(changelistData =>
+			.then((data: Changelists) =>
 			{
-				setChangelistData(changelistData);
-			});
+				setChangelistData(data);
 
+				const latest = latestChangelistDate(data);
+				if (!latest)
+				{
+					return;
+				}
+
+				const lastSeen = localStorage.getItem(LastSeenChangelistKey);
+				const visits = Number(localStorage.getItem("visits") ?? "0");
+				const firstVisit = visits <= 1 && !lastSeen;
+
+				// First visit: remember what's current so this list isn't "new" later.
+				if (firstVisit)
+				{
+					markChangelistSeen(data);
+					return;
+				}
+
+				if (!lastSeen || latest > lastSeen)
+				{
+					setUnseenChangelist(true);
+				}
+			});
 	}, []);
 
+	const applyUpdate = () =>
+	{
+		if (changelistData)
+		{
+			markChangelistSeen(changelistData);
+		}
+
+		ServiceWorkerUpdate.update();
+	};
+
 	return (
-		<Dialog open={waitingForUpdate}>
+		<Dialog open={waitingForUpdate && unseenChangelist}>
 			<DialogTitle>Update Available</DialogTitle>
 			<DialogContent dividers>
 				{changelistData && (
@@ -74,7 +130,7 @@ export const UpdateAvailableDialog: React.FC = () =>
 				)}
 			</DialogContent>
 			<DialogActions style={{justifyContent: "center", padding: "1rem"}}>
-				<Button autoFocus={false} color={"primary"} onClick={ServiceWorkerUpdate.update} startIcon={<FiDownloadCloud/>} variant={"contained"}>
+				<Button autoFocus={false} color={"primary"} onClick={applyUpdate} startIcon={<FiDownloadCloud/>} variant={"contained"}>
 					Update Now
 				</Button>
 			</DialogActions>

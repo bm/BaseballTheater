@@ -76,8 +76,7 @@ export class MiniBoxScore extends React.Component<IBoxScoreProps, IBoxScoreState
 		{
 			const linescore = this.props.game.liveData.linescore;
 			const startingInning = linescore.innings.length - 9;
-
-			const innings = linescore.innings;
+			const innings = linescore.innings.slice();
 
 			if (innings.length < 9)
 			{

@@ -1,5 +1,4 @@
 import { Teams } from "baseball-theater-engine";
-import cookies from "browser-cookies";
 import classNames from "classnames";
 import moment from "moment";
 import React from "react";
@@ -26,6 +25,7 @@ import {
 	BackerType,
 	IAuthContext,
 } from "../Global/AuthDataStore";
+import { getPatreonAuthUrl } from "../Global/PatreonAuth";
 import { SiteRoutes } from "../Global/Routes/Routes";
 import {
 	ISettingsDataStorePayload,
@@ -90,26 +90,11 @@ class Sidebar extends React.Component<Props, State> {
 	};
 
 	private get patreonUrl() {
-		const clientId =
-			"4f3fb1d9df8f53406f60617258e66ef5cba993b1aa72d2e32e66a1b5be0b9008";
-		const host =
-			window.location.hostname === "jlauer.local"
-				? "jlauer.local:8000"
-				: window.location.hostname;
-		const protocol =
-			window.location.hostname === "jlauer.local" ? "http:" : "https:";
-		const redirectUri = `${protocol}//${host}/auth/redirect`;
-		const scopes = ["users", "pledges-to-me", "my-campaign"];
-		const state = encodeURIComponent(window.location.pathname);
-		return `https://www.patreon.com/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(
-			redirectUri
-		)}&scope=${scopes.join(" ")}&state=${state}`;
+		return getPatreonAuthUrl();
 	}
 
 	private logOut = () => {
-		cookies.erase("auth");
-
-		AuthDataStore.refresh();
+		AuthDataStore.logout();
 	};
 
 	public componentDidMount(): void {

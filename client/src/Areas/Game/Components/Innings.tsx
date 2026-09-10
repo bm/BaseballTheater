@@ -22,21 +22,17 @@ export const HalfInning = ({halfInning, defaultOpen, isLive, isCurrentHalfInning
 	if (isLive)
 	{
 		playsSorted = playsSorted.filter(p => p.playEvents.length > 0);
+		playsSorted = [...playsSorted].reverse();
 	}
 
 	const renderedPlays = playsSorted.map((p, i) => (
 		<PlayItem
 			play={p}
-			key={i}
+			key={p.about.atBatIndex}
 			showOtherEvents={true}
-			defaultExpanded={i === playsSorted.length - 1 && isCurrentHalfInning}
+			defaultExpanded={(isLive ? i === 0 : i === playsSorted.length - 1) && isCurrentHalfInning}
 		/>
 	));
-
-	if (isLive)
-	{
-		renderedPlays.reverse();
-	}
 
 	const halfLabel = `${StringUtils.toProperCase(halfInning.halfInning)} ${halfInning.inningNumber}`;
 

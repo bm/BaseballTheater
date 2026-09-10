@@ -60,6 +60,53 @@ export class PlayItem extends React.Component<Props, State>
 		userExpanded: !this.state.userExpanded
 	});
 
+	private renderPlayDetails(pitchItems: React.ReactNode, finalHit?: LiveGamePlayEvent)
+	{
+		const {play} = this.props;
+		const {result} = play;
+
+		const details = (
+			<>
+				<div className={styles.pitcher}>
+					<Chip label={`B: ${play.matchup.batter.fullName} (${play.matchup.batSide.code})`}/>
+					<Chip style={{marginLeft: "auto"}} label={`P: ${play.matchup.pitcher.fullName} (${play.matchup.pitchHand.code})`}/>
+				</div>
+				{this.props.defaultExpanded && result.description && (
+					<div className={styles.result}>
+						{result.description}
+					</div>
+				)}
+				<div className={styles.pitches}>
+					<Strikezone play={play}/>
+					<List key={play.about.atBatIndex}>
+						{pitchItems}
+					</List>
+				</div>
+				{finalHit && (
+					<List>
+						<ListItem>EV: {finalHit.hitData.launchSpeed} MPH</ListItem>
+						<ListItem>Launch Angle: {finalHit.hitData.launchAngle}°</ListItem>
+						<ListItem>Distance: {finalHit.hitData.totalDistance}'</ListItem>
+						<ListItem>Hardness: {StringUtils.toProperCase(finalHit.hitData.hardness)}</ListItem>
+						<ListItem>Type: {StringUtils.toProperCase(finalHit.hitData.trajectory?.replace("_", " "))}</ListItem>
+					</List>
+				)}
+			</>
+		);
+
+		// Live current at-bats stay open; Collapse + React 18 can leave stale pitch rows behind.
+		if (this.props.defaultExpanded)
+		{
+			return <div className={styles.playDetails}>{details}</div>;
+		}
+
+		return (
+			<Collapse in={this.expanded} className={styles.playDetails} unmountOnExit>
+				{details}
+			</Collapse>
+		);
+	}
+
 	public render()
 	{
 		const {
@@ -74,10 +121,21 @@ export class PlayItem extends React.Component<Props, State>
 			playEvents
 		} = this.props.play;
 
-		const pitchItems = playEvents
-			.map((pe, i) => pitchIndex.includes(i)
-				? <PitchItem auth={this.state.auth} key={pe.endTime} pitch={pe}/>
-				: i >= pitchIndex[0] && <NonPitchEvent pe={pe}/>);
+		const firstPitchIndex = pitchIndex[0];
+		const pitchItems = playEvents.map((pe, i) =>
+		{
+			if (pitchIndex.includes(i))
+			{
+				return <PitchItem auth={this.state.auth} key={pe.playId ?? `pitch-${pe.index}-${i}`} pitch={pe}/>;
+			}
+
+			if (firstPitchIndex !== undefined && i >= firstPitchIndex)
+			{
+				return <NonPitchEvent key={pe.playId ?? `action-${pe.index}-${i}`} pe={pe}/>;
+			}
+
+			return null;
+		});
 
 		const playEventsLength = this.props.play?.playEvents?.length ?? 1;
 		const playId = this.props.play.playEvents?.[playEventsLength - 1]?.playId;
@@ -106,75 +164,47 @@ export class PlayItem extends React.Component<Props, State>
 
 		return (
 			<>
-				{showOtherEvents && nonPitchPlays.map(pe => (
-					<div className={styles.nonPitchEvent}>
+				{showOtherEvents && nonPitchPlays.map((pe, i) => (
+					<div className={styles.nonPitchEvent} key={pe.playId ?? `pre-${pe.index}-${i}`}>
 						<MdInfoOutline className={styles.nonPitchEventIcon}/>
 						<div>{pe.details.description}</div>
 					</div>
 				))}
-				{!this.props.defaultExpanded && (
-					<ListItem button onClick={this.toggle}>
-						<ListItemAvatar>
-							{playId &&
-                            <Tooltip title={tooltip} arrow enterTouchDelay={0}>
-                                <Avatar className={avatarClasses}>
-                                    <a target={"_blank"} href={href}
-                                       onClick={e =>
+				<ListItem button onClick={this.toggle}>
+					<ListItemAvatar>
+						{playId &&
+                        <Tooltip title={tooltip} arrow enterTouchDelay={0}>
+                            <Avatar className={avatarClasses}>
+                                <a target={"_blank"} href={href}
+                                   onClick={e =>
+								   {
+									   e.stopPropagation();
+									   if (!authed || !playVideoEnabled)
 									   {
-										   e.stopPropagation();
-										   if (!authed || !playVideoEnabled)
+										   if (!authed)
 										   {
-											   if (!authed)
-											   {
-												   UpsellDataStore.open(BackerType.ProBacker);
-											   }
-											   e.preventDefault();
+											   UpsellDataStore.open(BackerType.ProBacker);
 										   }
-									   }}>
-                                        <MdVideoLibrary/>
-                                    </a>
-                                </Avatar>
-                            </Tooltip>
-							}
-						</ListItemAvatar>
-						<ListItemText
-							primary={result.event || `${play.matchup.batter.fullName} hits against ${play.matchup.pitcher.fullName}`}
-							secondary={result.description}
-						/>
-						<ListItemSecondaryAction>
-							<div className={styles.actions}>
-								{this.expanded ? <ExpandLess/> : <ExpandMore/>}
-							</div>
-						</ListItemSecondaryAction>
-					</ListItem>
-				)}
-				<Collapse in={this.expanded} className={styles.playDetails}>
-
-					<div className={styles.pitcher}>
-						<Chip label={`B: ${play.matchup.batter.fullName} (${play.matchup.batSide.code})`}/>
-						<Chip style={{marginLeft: "auto"}} label={`P: ${play.matchup.pitcher.fullName} (${play.matchup.pitchHand.code})`}/>
-					</div>
-					{this.props.defaultExpanded && result.description && (
-						<div className={styles.result}>
-							{result.description}
+										   e.preventDefault();
+									   }
+								   }}>
+                                    <MdVideoLibrary/>
+                                </a>
+                            </Avatar>
+                        </Tooltip>
+						}
+					</ListItemAvatar>
+					<ListItemText
+						primary={result.event || `${play.matchup.batter.fullName} hits against ${play.matchup.pitcher.fullName}`}
+						secondary={result.description}
+					/>
+					<ListItemSecondaryAction>
+						<div className={styles.actions}>
+							{this.expanded ? <ExpandLess/> : <ExpandMore/>}
 						</div>
-					)}
-					<div className={styles.pitches}>
-						<Strikezone play={this.props.play}/>
-						<List>
-							{pitchItems}
-						</List>
-					</div>
-					{finalHit && (
-						<List>
-							<ListItem>EV: {finalHit.hitData.launchSpeed} MPH</ListItem>
-							<ListItem>Launch Angle: {finalHit.hitData.launchAngle}°</ListItem>
-							<ListItem>Distance: {finalHit.hitData.totalDistance}'</ListItem>
-							<ListItem>Hardness: {StringUtils.toProperCase(finalHit.hitData.hardness)}</ListItem>
-							<ListItem>Type: {StringUtils.toProperCase(finalHit.hitData.trajectory?.replace("_", " "))}</ListItem>
-						</List>
-					)}
-				</Collapse>
+					</ListItemSecondaryAction>
+				</ListItem>
+				{this.renderPlayDetails(pitchItems, finalHit)}
 			</>
 		);
 	}

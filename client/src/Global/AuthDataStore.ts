@@ -19,7 +19,7 @@ export enum BackerType
 	PremiumSponsor = "Premium Sponsor"
 }
 
-const BackerLevelMap = {
+const BackerLevelMap: { [tierTitle: string]: BackerType[] } = {
 	[BackerType.Backer]: [BackerType.Backer],
 	[BackerType.ProBacker]: [BackerType.Backer, BackerType.ProBacker],
 	[BackerType.StarBacker]: [BackerType.Backer, BackerType.ProBacker, BackerType.StarBacker],
@@ -49,11 +49,18 @@ class _AuthDatastore extends DataStore<IAuthContext>
 
 	private async initialize()
 	{
-		const user: { userId: string, accessToken: string, levels: BackerType } = await fetch("/auth/status")
+		const user: { userId: string, accessToken: string, levels: BackerType[] } = await fetch("/auth/status")
 			.then(r => r.json());
 
-		const levels = user.levels
-			? BackerLevelMap[user.levels]
+		const grantedLevels = (user?.levels ?? []).reduce((all, tierTitle) =>
+		{
+			const granted = BackerLevelMap[tierTitle] ?? [];
+
+			return all.concat(granted.filter(level => !all.includes(level)));
+		}, [] as BackerType[]);
+
+		const levels = grantedLevels.length
+			? grantedLevels
 			: [BackerType.None];
 
 		this.update({
@@ -66,6 +73,13 @@ class _AuthDatastore extends DataStore<IAuthContext>
 
 	public refresh()
 	{
+		this.initialize();
+	}
+
+	public async logout()
+	{
+		await fetch("/auth/logout", {method: "POST"});
+
 		this.initialize();
 	}
 

@@ -11,6 +11,11 @@ import { RegisterLocalEndpoints } from './Local/endpoints';
 import { Search } from './Local/search';
 import { RegisterPlaybackEndpoints } from './Playback/endpoints';
 
+process.on("unhandledRejection", (reason) =>
+{
+	console.error("Unhandled rejection", reason);
+});
+
 // Create the app
 const app = express();
 const port = process.env.PORT || 8000;

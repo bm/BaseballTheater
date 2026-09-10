@@ -1,7 +1,7 @@
 import { Button, ButtonGroup, Menu, MenuItem, Tab, Tabs } from '@material-ui/core';
 import { LiveData } from 'baseball-theater-engine';
 import moment from 'moment';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import React from 'react';
 import Helmet from 'react-helmet';
 import { IoIosMenu } from 'react-icons/all';
@@ -38,42 +38,50 @@ interface IPlaysState {
 	mode: "scoring" | "all";
 }
 
-export const Plays: React.FC<Props> = (props) => {
+export const Plays: React.FC<Props> = React.memo((props) => {
 	const params = useParams<IGameTabDetailParams>();
-	const buttonRef = React.createRef<HTMLButtonElement>();
+	const buttonRef = React.useRef<HTMLButtonElement>(null);
 	const prevProps = usePrevious(props);
 
-	const [selectedInning, setSelectedInning] = useState(props.liveData ? props.liveData.liveData.linescore.innings.length : -1);
+	const halfInnings = React.useMemo(() => {
+		if (!props.liveData?.liveData) {
+			return [] as HalfInnings[];
+		}
+
+		return PlayUtils.getHalfInningsByInning(props.liveData.liveData);
+	}, [props.liveData]);
+
+	const halfInningsKeysSorted = React.useMemo(() => halfInnings.map(hi => Object.keys(hi).sort((a, b) => {
+		const aPlay = hi[a];
+		const bPlay = hi[b];
+		const aHalfVal = aPlay.halfInning.length / 10;
+		const bHalfVal = bPlay.halfInning.length / 10;
+		const aInning = aPlay.inningNumber + aHalfVal;
+		const bInning = bPlay.inningNumber + bHalfVal;
+		return aInning - bInning;
+	})), [halfInnings]);
+
+	const inningsWithPlays = (props.liveData?.liveData.linescore.innings ?? [])
+		.map((inning, i) => ({
+			inning,
+			num: inning?.num ?? i + 1,
+			hasPlays: Object.keys(halfInnings[i] ?? {}).length > 0
+		}))
+		.filter(entry => entry.hasPlays && !!entry.inning);
+
+	const latestPlayableInning = inningsWithPlays[inningsWithPlays.length - 1]?.num ?? -1;
+
+	const [pinnedInning, setPinnedInning] = useState<number | null>(null);
 	const respond = useDataStore(RespondDataStore);
-	const [halfInnings, setHalfInnings] = useState<HalfInnings[]>([]);
-	const [halfInningsKeysSorted, sethalfInningsKeysSorted] = useState<string[][]>([]);
 	const [inningMenuOpen, setInningMenuOpen] = useState(false);
 	const [mode, setMode] = useState<"scoring" | "all">(params.tabDetail === "all" ? "all" : "scoring");
 
-	useEffect(() => {
-		if (props.liveData?.liveData.linescore?.innings && selectedInning === -1) {
-			const innings = props.liveData?.liveData?.linescore?.innings.filter(a => !!a);
-			setSelectedInning(innings.length);
-		}
+	const pinnedInningHasPlays = pinnedInning != null && inningsWithPlays.some(entry => entry.num === pinnedInning);
+	const activeInning = pinnedInningHasPlays
+		? pinnedInning
+		: latestPlayableInning;
 
-		if (!halfInnings.length && !!props.liveData?.liveData) {
-			const newHalfInnings = PlayUtils.getHalfInningsByInning(props.liveData?.liveData);
-			const newHalfInningsKeysSorted = newHalfInnings.map(hi => Object.keys(hi).sort((a, b) => {
-				const aPlay = hi[a];
-				const bPlay = hi[b];
-				const aHalfVal = aPlay.halfInning.length / 10;
-				const bHalfVal = bPlay.halfInning.length / 10;
-				const aInning = aPlay.inningNumber + aHalfVal;
-				const bInning = bPlay.inningNumber + bHalfVal;
-				return aInning - bInning;
-			}));
-
-			setHalfInnings(newHalfInnings);
-			sethalfInningsKeysSorted(newHalfInningsKeysSorted);
-		}
-	}, [halfInnings.length, props, selectedInning])
-
-	const onInningSelect = (inning: number) => setSelectedInning(inning);
+	const onInningSelect = (inning: number) => setPinnedInning(inning === latestPlayableInning ? null : inning);
 
 	const onMenuClose = () => setInningMenuOpen(false);
 
@@ -109,8 +117,8 @@ export const Plays: React.FC<Props> = (props) => {
 	const teams = props.liveData.gameData.teams;
 	const date = moment(props.liveData.gameData.datetime.dateTime).format("MMMM D, YYYY");
 
-	const halfInningsChosen = halfInnings?.[selectedInning - 1];
-	const keys = halfInningsKeysSorted?.[selectedInning - 1];
+	const halfInningsChosen = halfInnings?.[activeInning - 1];
+	const keys = halfInningsKeysSorted?.[activeInning - 1];
 
 	return (
 		<div className={styles.wrapper}>
@@ -139,24 +147,23 @@ export const Plays: React.FC<Props> = (props) => {
 				</ButtonGroup>
 			</div>
 			<div className={styles.inningWrapper}>
-				{!isMedium && mode === "all" && (
+				{!isMedium && mode === "all" && inningsWithPlays.length > 0 && (
 					<Tabs
 						className={styles.inningTabs}
 						orientation={orientation}
-						variant="scrollable"
-						value={selectedInning}
+						value={activeInning}
 						onChange={(e, i) => onInningSelect(i)}
 						indicatorColor="primary"
 						textColor="primary"
 					>
 						{
-							liveData.linescore.innings.map((inning, i) => (
-								<Tab key={i} label={inning?.ordinalNum} value={inning?.num} />
+							inningsWithPlays.map(({inning, num}) => (
+								<Tab key={num} label={inning.ordinalNum} value={num} />
 							))
 						}
 					</Tabs>
 				)}
-				{mode === "all" && isMedium && (
+				{mode === "all" && isMedium && inningsWithPlays.length > 0 && (
 					<React.Fragment>
 						<div>
 							<Button
@@ -174,7 +181,7 @@ export const Plays: React.FC<Props> = (props) => {
 									marginRight: "0.5rem",
 									fontSize: "1.5rem"
 								}} />
-								{liveData.linescore.innings[selectedInning - 1]?.ordinalNum} Inning
+								{liveData.linescore.innings[activeInning - 1]?.ordinalNum} Inning
 							</Button>
 						</div>
 						<Menu
@@ -188,10 +195,10 @@ export const Plays: React.FC<Props> = (props) => {
 							onClose={onMenuClose}
 						>
 							{
-								liveData.linescore.innings.slice(0, liveData.linescore.currentInning).map((inning, i) => (
-									<MenuItem onClick={_ => onMenuSelect(i + 1)}>
-										{inning?.ordinalNum
-											? `${inning?.ordinalNum} Inning`
+								inningsWithPlays.map(({inning, num}, i) => (
+									<MenuItem key={num} onClick={_ => onMenuSelect(num)}>
+										{inning.ordinalNum
+											? `${inning.ordinalNum} Inning`
 											: `Inning ${i + 1}`}
 									</MenuItem>
 								))
@@ -200,9 +207,9 @@ export const Plays: React.FC<Props> = (props) => {
 					</React.Fragment>
 				)}
 
-				{halfInningsChosen && keys && mode === "all" && (
+				{halfInningsChosen && keys?.length > 0 && mode === "all" && (
 					<Inning
-						isCurrentInning={selectedInning === liveData.linescore.currentInning}
+						isCurrentInning={activeInning === liveData.linescore.currentInning}
 						halfInnings={halfInningsChosen}
 						keysSorted={keys}
 					/>
@@ -217,4 +224,4 @@ export const Plays: React.FC<Props> = (props) => {
 		</div>
 	);
 
-}
+});

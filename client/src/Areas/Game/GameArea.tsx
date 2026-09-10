@@ -157,37 +157,39 @@ const GameArea: React.FC = () => {
 						)}
 					</Respond>
 					<Respond at={RespondSizes.medium} hide={true}>
-						<Tabs
-							className={styles.tabs}
-							value={tabValue}
-							onChange={handleChange}
-							centered={true}
-							indicatorColor={"primary"}
-							textColor="primary"
-						>
-							{gameDataStore?.state?.liveData?.gameData && (
-								<Link to={SiteRoutes.Games.resolve({ yyyymmdd: gameDataStore?.state?.liveData?.gameData?.datetime?.originalDate.replace(/-/g, "") })}>
-									<IconButton aria-label="back" color='primary' size={'medium'} style={{ height: "3.5rem", zIndex: 4000 }}>
-										<ArrowBack />
-									</IconButton>
-								</Link>
-							)}
+						<div className={styles.tabs}>
 							{!gameData.cancelled && (
 								<RefreshTimer barValue={barValue} secondsUntilRefresh={gameData.secondsUntilRefresh} />
 							)}
-							{validTabs.map((tab, i) => (
-								<Tab
-									key={tab.label}
-									label={tab.label}
-									value={tab.value}
-									style={{
-										height: "3.5rem",
-										marginLeft: i === 0 ? "auto" : "",
-										marginRight: i === validTabs.length - 1 ? "auto" : undefined
-									}}
-								/>
-							))}
-						</Tabs>
+							<Tabs
+								className={styles.tabBar}
+								value={tabValue}
+								onChange={handleChange}
+								centered={true}
+								indicatorColor={"primary"}
+								textColor="primary"
+							>
+								{gameDataStore?.state?.liveData?.gameData && (
+									<Link to={SiteRoutes.Games.resolve({ yyyymmdd: gameDataStore?.state?.liveData?.gameData?.datetime?.originalDate.replace(/-/g, "") })}>
+										<IconButton aria-label="back" color='primary' size={'medium'} style={{ height: "3.5rem", zIndex: 4000 }}>
+											<ArrowBack />
+										</IconButton>
+									</Link>
+								)}
+								{validTabs.map((tab, i) => (
+									<Tab
+										key={tab.label}
+										label={tab.label}
+										value={tab.value}
+										style={{
+											height: "3.5rem",
+											marginLeft: i === 0 ? "auto" : "",
+											marginRight: i === validTabs.length - 1 ? "auto" : undefined
+										}}
+									/>
+								))}
+							</Tabs>
+						</div>
 					</Respond>
 					<div className={styles.content}>
 						{renderTab()}

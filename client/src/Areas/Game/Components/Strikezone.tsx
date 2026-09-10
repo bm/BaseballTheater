@@ -46,7 +46,7 @@ export class Strikezone extends React.Component<Props, State>
 				<div className={styles.zone}>
 					<div className={styles.zoneBox}>
 						{pitches.map((p, i) => (
-							<Pitch key={i} {...p} />
+							<Pitch key={p.playId ?? `sz-${p.index}-${i}`} {...p} />
 						))}
 					</div>
 				</div>

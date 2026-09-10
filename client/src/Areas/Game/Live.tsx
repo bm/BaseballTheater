@@ -4,7 +4,6 @@ import liveStyles from "./Live.module.scss";
 import Helmet from "react-helmet";
 import {MiniBoxScore} from "./Components/MiniBoxScore";
 import * as React from "react";
-import {useEffect, useState} from "react";
 import moment from "moment";
 import {ContainerProgress} from "../../UI/ContainerProgress";
 import {PlayUtils} from "./Utils/PlayUtils";
@@ -18,14 +17,9 @@ interface ILiveProps
 }
 
 
-export const Live: React.FC<ILiveProps> = ({liveData}) =>
+export const Live: React.FC<ILiveProps> = React.memo(({liveData}) =>
 {
-	const [halfInnings, setHalfInnings] = useState(PlayUtils.getHalfInningsByInning(liveData?.liveData));
-
-	useEffect(() =>
-	{
-		setHalfInnings(PlayUtils.getHalfInningsByInning(liveData?.liveData));
-	}, [liveData]);
+	const halfInnings = PlayUtils.getHalfInningsByInning(liveData?.liveData);
 
 	if (!liveData || !halfInnings?.length)
 	{
@@ -50,7 +44,7 @@ export const Live: React.FC<ILiveProps> = ({liveData}) =>
 
 	if (!halfInning)
 	{
-		return null;
+		return <ContainerProgress/>;
 	}
 
 	const {
@@ -103,6 +97,7 @@ export const Live: React.FC<ILiveProps> = ({liveData}) =>
 			<List>
 				<HalfInning
 					isLive
+					key={`${halfInning.inningNumber}-${halfInning.halfInning}`}
 					halfInning={halfInning}
 					defaultOpen={true}
 					isCurrentHalfInning={true}
@@ -110,7 +105,7 @@ export const Live: React.FC<ILiveProps> = ({liveData}) =>
 			</List>
 		</div>
 	);
-}
+});
 
 const Pip: React.FC<{ on: boolean, className: string }> = ({on, className}) =>
 {

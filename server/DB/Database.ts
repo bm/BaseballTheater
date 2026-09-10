@@ -8,7 +8,9 @@ export interface IUser
 	id: string;
 	accessToken: string;
 	refresh_token: any;
-	refresh_expiry: Date;
+	// Epoch milliseconds. The DynamoDB document client cannot marshal a Date and silently
+	// writes it as an empty map.
+	refresh_expiry: number;
 	settings: any;
 }
 
